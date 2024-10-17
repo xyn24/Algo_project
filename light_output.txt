@@ -1,0 +1,4 @@
+len: 50	p: 1.5	average loss_num: 276.849
+len: 50	p: 3	average loss_num: 275.019
+len: 50	p: 3	average loss_num: 264.651
+len: 50	p: 3	average loss_num: 368.463

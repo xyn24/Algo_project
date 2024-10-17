@@ -4,151 +4,110 @@
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <regex>
 
 using namespace std;
 
-const double p_max = 3;
-int len = 50;
+const double p_max = 1, p_min = 0, p_step = 1;
+int len = 1000, init_len = 1000;
 const int repeat_times_bound = 1000;
 int repeat_times = 0;
-double sum = 0;
-double sum2 = 0;
-int len_x = len;
-int len_y = len;
-const double T_0 = 100;
-const double cooling_rate = 1 - 1e-4;
-const double T_min = 0.01;
-const int d_xy[5][2] = {{0, 0}, {0, 1}, {0, -1}, {1, 0}, {-1, 0}};
-int light_stage[200][200];
-double loss = 100000;
-double loss_num = 100000;
-int num = 0;
-int sum_num = 0;
-double p = 0, temp_p = 0;
-int init_len = 20;
-double init_p = 0;
+double sum = 0, sum2 = 0;
+const double T_0 = 100, cooling_rate = 1 - 1e-4, T_min = 0.01; 
+double loss = 100000, loss_num = 100000;
+int num = 0, sum_num = 0;
+double p = 0, temp_p = 0, init_p = 0;
 bool is_init = false;  //change this to initialize the p
 bool is_stable = false;
 
-void light_up_kernel(int light_stage[200][200], int x_, int y_)
+struct vertex
 {
-    for (int i = 0; i < 5; ++i)
-    {
-        int new_x = x_ + d_xy[i][0];
-        int new_y = y_ + d_xy[i][1];
-        if (new_x >= 0 && new_x < len_x && new_y >= 0 && new_y < len_y)
-        {
-            light_stage[new_x][new_y] = 1 - light_stage[new_x][new_y];
-        }
-    }
-}
+    int state;
+    vector<int> neighbor;
+    vertex(): state(rand()%2), neighbor(vector<int>()) {}
+};
 
-void light_up(int x_, int y_)
+struct graph
 {
-    light_up_kernel(light_stage, x_, y_);
-}
+    vector<vertex> vertices;
+    vector<pair<int, int>> edges;
 
-void generate_random_light()
-{
-    for (int i = 0; i < len_x; ++i)
+    void add_edge(int u, int v)
     {
-        for (int j = 0; j < len_y; ++j)
-        {
-            light_stage[i][j] = rand() % 2;
-        }
+        vertices[u].neighbor.push_back(v);
+        vertices[v].neighbor.push_back(u);
+        edges.push_back(make_pair(u, v));
     }
-}
 
-double find_new_loss_1()
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x; ++i)
+    graph(int n): vertices(vector<vertex>(n))
     {
-        for (int j = 0; j < len_y; ++j)
+        for (int i = 0; i < n; ++i)
         {
-            temp_loss += light_stage[i][j];
+            for (int j = i + 1; j < n; ++j)
+            {
+                if (((double)rand() / RAND_MAX)<0.01)
+                {
+                    add_edge(i, j);
+                }
+            }
         }
     }
-    return temp_loss;
-}
 
-double find_new_loss_1(int new_p)
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x; ++i)
+    void light_up(int u)
     {
-        for (int j = 0; j < len_y; ++j)
+        vertices[u].state = 1 - vertices[u].state;
+        for (int v: vertices[u].neighbor)
         {
-            temp_loss += light_stage[i][j];
+            vertices[v].state = 1 - vertices[v].state;
         }
     }
-    return temp_loss;
-}
 
-double find_new_loss_2(int new_p)
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x - 1; ++i)
+    int loss_1()
     {
-        for (int j = 0; j < len_y; ++j)
+        int res = 0;
+        for (vertex v: vertices)
         {
-            temp_loss += light_stage[i][j] * light_stage[i + 1][j];
+            res += v.state;
         }
+        return res;
     }
-    for (int i = 0; i < len_x; ++i)
-    {
-        for (int j = 0; j < len_y - 1; ++j)
-        {
-            temp_loss += light_stage[i][j] * light_stage[i][j + 1];
-        }
-    }
-    return -new_p * temp_loss + find_new_loss_1();
-}
 
-double find_new_loss_3(int new_p)
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x - 1; ++i)
+    int loss_1(int new_p)
     {
-        for (int j = 0; j < len_y; ++j)
-        {
-            temp_loss += light_stage[i][j]^light_stage[i + 1][j];
-        }
+        return loss_1();
     }
-    for (int i = 0; i < len_x; ++i)
-    {
-        for (int j = 0; j < len_y - 1; ++j)
-        {
-            temp_loss += light_stage[i][j]^light_stage[i][j + 1];
-        }
-    }
-    return new_p * temp_loss + find_new_loss_1();
-}
 
-void print_light()
-{
-    for (int i = 0; i < len_y; ++i)
+    int loss_2(int new_p)
     {
-        for (int j = 0; j < len_x; ++j)
+        int res = 0;
+        for (pair<int, int> e: edges)
         {
-            cout << light_stage[i][j] << " ";
+            res += vertices[e.first].state^vertices[e.second].state;
+        }
+        return new_p * res + loss_1();
+    }
+
+    int loss_3(int new_p)
+    {
+        double res = 0;
+        for (pair<int, int> e: edges)
+        {
+            res += double(vertices[e.first].state^vertices[e.second].state) * (1.0 / vertices[e.first].neighbor.size() + 1.0 / vertices[e.second].neighbor.size());
+        }
+        return new_p * res + loss_1(new_p);
+    }
+
+    void print()
+    {
+        for (vertex v: vertices)
+        {
+            cout << v.state << " ";
         }
         cout << endl;
     }
-}
-
-void get_light_input()
-{
-    for (int i = 0; i < len_y; ++i)
-    {
-        for (int j = 0; j < len_x; ++j)
-        {
-            cin >> light_stage[i][j];
-        }
-    }
-}
+}g(0);
 
 void gradient_descent()
 {
@@ -156,26 +115,25 @@ void gradient_descent()
     while (!is_converged)
     {
         is_converged = true;
-        for (int i = 0; i < len_x; ++i) 
-            for (int j = 0; j < len_y; ++j)
+        for (int i = 0; i < len; ++i)
+        {
+            sum_num++;
+            g.light_up(i);
+            double temp_loss_num = g.loss_1(1);
+            g.light_up(i);
+            if (temp_loss_num < loss_num)
             {
-                sum_num++;
-                light_up(i, j);
-                double temp_loss_num = find_new_loss_1();
-                light_up(i, j);
-                if (temp_loss_num < loss_num)
-                {
-                    light_up(i, j);
-                    loss_num = temp_loss_num;
-                    is_converged = false;
-                }
+                g.light_up(i);
+                loss_num = temp_loss_num;
+                is_converged = false;
             }
+        }
     }
 }
 
 void main_algorithm()
 {
-    generate_random_light();
+    g = graph(len);
     loss = 100000;
     num = 0;
     sum_num = 0;
@@ -183,20 +141,19 @@ void main_algorithm()
     double T = T_0;
     while (true)
     {
-        int x = rand() % len_x;
-        int y = rand() % len_y;
-        light_up(x, y);
-        double temp_loss = find_new_loss_3(temp_p); // change this to change the loss function
-        light_up(x, y);
+        int x = rand() % len;
+        g.light_up(x);
+        double temp_loss = g.loss_3(temp_p); // change this to change the loss function
+        g.light_up(x);
         if (loss >= temp_loss)
         {
-            light_up(x, y);
+            g.light_up(x);
             loss = temp_loss;
             num = 0;
         }
         else if (exp((loss - temp_loss) / T) > ((double)rand() / RAND_MAX))
         {
-            light_up(x, y);
+            g.light_up(x);
             loss = temp_loss;
             num = 0;
         }
@@ -216,9 +173,9 @@ void main_algorithm()
             temp_p *= 1-1e-4;
         }
     }
-    loss_num = find_new_loss_1();
+    loss_num = g.loss_1();
     gradient_descent();
-    loss = find_new_loss_3(temp_p); // change this to change the loss function
+    loss = g.loss_3(temp_p); // change this to change the loss function
     // print_light();
     cout << "len: " << len << "\tp: " << p << "\tloss_num: " << loss_num << " \tloss: " << loss << " \tsum_num: " << sum_num << endl;
     sum += loss_num;
@@ -242,28 +199,44 @@ void repeat_algorithm()
     }
 }
 
-int main()
-{
-    srand(time(0));
-
+void extract_last_entry(int& len_value, double& p_value) {
     ifstream infile("light_output.txt");
     if (!infile) {
         cerr << "无法打开文件 light_output.txt" << endl;
-        return 1;
+        return;
     }
 
     string line;
-    regex pattern(R"(len: (\d+)\s+p: (\d+\.\d+))");
-    smatch matches;
-
+    string last_line;
     while (getline(infile, line)) {
-        if (regex_search(line, matches, pattern)) {
-            init_len = stoi(matches[1].str());
-            init_p = double(stod(matches[2].str()))+0.05;
+        if (!line.empty()) {
+            last_line = line;
         }
     }
 
     infile.close();
+
+    if (last_line.empty()) {
+        cerr << "文件为空或没有有效数据" << endl;
+        return;
+    }
+
+    istringstream iss(last_line);
+    string part;
+    while (getline(iss, part, '\t')) {
+        if (part.find("len:") != string::npos) {
+            len_value = stod(part.substr(part.find(":") + 1));
+        } else if (part.find("p:") != string::npos) {
+            p_value = stod(part.substr(part.find(":") + 1));
+        }
+    }
+}
+
+int main()
+{
+    srand(time(0));
+
+    extract_last_entry(init_len, init_p);
 
     ofstream outfile("light_output.txt", std::ios::app);
     if (!outfile) {
@@ -271,15 +244,13 @@ int main()
         return 1;
     }
     
-    for (len = 50; len<=50; len+=10)
+    for (len = 1000; len<=1000; len+=10)
     {
-        len_x = len;
-        len_y = len;
-        for (p = p_max; p <= p_max+1e-6; p += 0.05)
+        for (p = p_min; p <= p_max+1e-6; p += p_step)
         {
             if (is_init)
             {
-                p = init_p;
+                p = init_p+p_step;
                 is_init = false;
                 if (p>p_max)
                     break;

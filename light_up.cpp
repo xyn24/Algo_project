@@ -10,7 +10,6 @@
 
 using namespace std;
 
-const double p_max = 1, p_min = 0, p_step = 1;
 int len = 1000, init_len = 1000;
 const int repeat_times_bound = 1000;
 int repeat_times = 0;
@@ -18,6 +17,7 @@ double sum = 0, sum2 = 0;
 const double T_0 = 100, cooling_rate = 1 - 1e-4, T_min = 0.01; 
 double loss = 100000, loss_num = 100000;
 int num = 0, sum_num = 0;
+const double p_max = 6, p_min = 6, p_step = 1;
 double p = 0, temp_p = 0, init_p = 0;
 bool is_init = false;  //change this to initialize the p
 bool is_stable = false;
@@ -29,20 +29,31 @@ struct vertex
     vertex(): state(rand()%2), neighbor(vector<int>()) {}
 };
 
+struct edge
+{
+    bool is_exist = false;
+    int value = false;
+};
+
 struct graph
 {
     vector<vertex> vertices;
     vector<pair<int, int>> edges;
+    vector<vector<edge>> edge_matrix;
+    double loss_1, loss_21, loss_31;
 
     void add_edge(int u, int v)
     {
         vertices[u].neighbor.push_back(v);
         vertices[v].neighbor.push_back(u);
         edges.push_back(make_pair(u, v));
+        edge_matrix[u][v].is_exist = true;
+        edge_matrix[v][u].is_exist = true;
     }
 
     graph(int n): vertices(vector<vertex>(n))
     {
+        edge_matrix = vector<vector<edge>>(n, vector<edge>(n));
         for (int i = 0; i < n; ++i)
         {
             for (int j = i + 1; j < n; ++j)
@@ -53,50 +64,45 @@ struct graph
                 }
             }
         }
+        loss_1 = 0;
+        loss_21 = 0;
+        loss_31 = 0;
+        for (vertex v: vertices)
+        {
+            loss_1 += v.state;
+        }
+        for (pair<int, int> e: edges)
+        {
+            edge_matrix[e.first][e.second].value = vertices[e.first].state^vertices[e.second].state;
+            edge_matrix[e.second][e.first].value = vertices[e.first].state^vertices[e.second].state;
+            loss_21 += double(edge_matrix[e.first][e.second].value);
+            loss_31 += double(edge_matrix[e.first][e.second].value) * (1.0 / vertices[e.first].neighbor.size() + 1.0 / vertices[e.second].neighbor.size());
+        }
     }
 
     void light_up(int u)
     {
         vertices[u].state = 1 - vertices[u].state;
+        loss_1 += 2 * vertices[u].state - 1;
         for (int v: vertices[u].neighbor)
         {
             vertices[v].state = 1 - vertices[v].state;
+            loss_1 += 2 * vertices[v].state - 1;
         }
-    }
-
-    int loss_1()
-    {
-        int res = 0;
-        for (vertex v: vertices)
-        {
-            res += v.state;
-        }
-        return res;
-    }
-
-    int loss_1(int new_p)
-    {
-        return loss_1();
-    }
-
-    int loss_2(int new_p)
-    {
-        int res = 0;
-        for (pair<int, int> e: edges)
-        {
-            res += vertices[e.first].state^vertices[e.second].state;
-        }
-        return new_p * res + loss_1();
-    }
-
-    int loss_3(int new_p)
-    {
-        double res = 0;
-        for (pair<int, int> e: edges)
-        {
-            res += double(vertices[e.first].state^vertices[e.second].state) * (1.0 / vertices[e.first].neighbor.size() + 1.0 / vertices[e.second].neighbor.size());
-        }
-        return new_p * res + loss_1(new_p);
+        for (int v: vertices[u].neighbor)
+            for (int w: vertices[v].neighbor)
+            {
+                if (w != u)
+                {
+                    if (edge_matrix[v][w].value != (vertices[v].state^vertices[w].state))
+                    {
+                        edge_matrix[v][w].value = 1 - edge_matrix[v][w].value;
+                        edge_matrix[w][v].value = 1 - edge_matrix[w][v].value;
+                        loss_21 += 2 * (edge_matrix[v][w].value) - 1;
+                        loss_31 += (2 * (edge_matrix[v][w].value) - 1) * (1.0 / vertices[v].neighbor.size() + 1.0 / vertices[w].neighbor.size());
+                    }
+                }
+            }
     }
 
     void print()
@@ -119,13 +125,15 @@ void gradient_descent()
         {
             sum_num++;
             g.light_up(i);
-            double temp_loss_num = g.loss_1(1);
-            g.light_up(i);
+            double temp_loss_num = g.loss_1;
             if (temp_loss_num < loss_num)
             {
-                g.light_up(i);
                 loss_num = temp_loss_num;
                 is_converged = false;
+            }
+            else
+            {
+                g.light_up(i);
             }
         }
     }
@@ -143,19 +151,20 @@ void main_algorithm()
     {
         int x = rand() % len;
         g.light_up(x);
-        double temp_loss = g.loss_3(temp_p); // change this to change the loss function
-        g.light_up(x);
+        double temp_loss = g.loss_1 + temp_p * g.loss_31; // change this to change the loss function
         if (loss >= temp_loss)
         {
-            g.light_up(x);
             loss = temp_loss;
             num = 0;
         }
         else if (exp((loss - temp_loss) / T) > ((double)rand() / RAND_MAX))
         {
-            g.light_up(x);
             loss = temp_loss;
             num = 0;
+        }
+        else
+        {
+            g.light_up(x);
         }
         num++;
         sum_num++;
@@ -173,9 +182,9 @@ void main_algorithm()
             temp_p *= 1-1e-4;
         }
     }
-    loss_num = g.loss_1();
+    loss_num = g.loss_1;
     gradient_descent();
-    loss = g.loss_3(temp_p); // change this to change the loss function
+    loss = g.loss_1 + temp_p * g.loss_31; // change this to change the loss function
     // print_light();
     cout << "len: " << len << "\tp: " << p << "\tloss_num: " << loss_num << " \tloss: " << loss << " \tsum_num: " << sum_num << endl;
     sum += loss_num;

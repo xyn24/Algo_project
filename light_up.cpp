@@ -33,8 +33,7 @@ int loss_type = 4; // change this to change the loss function
 bool is_init = false; // change this to initialize the p
 bool is_stable = false;
 
-random_device rd; // 用于生成种子
-mt19937 gen(rd()); // 使用 Mersenne Twister 生成器
+mt19937 gen(time(0)); // 使用 Mersenne Twister 生成器
 uniform_int_distribution<> dis(1, 100000); // 定义一个均匀分布，范围为 1 到 100
 uniform_real_distribution<> dis_real(0.0, 1.0); // 定义一个均匀分布，范围为 0.0 到 1.0
 uniform_int_distribution<> dis_bool(0, 1); // 定义一个均匀分布，范围为 0 到 1

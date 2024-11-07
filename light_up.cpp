@@ -4,151 +4,147 @@
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <regex>
+#include <utility>
+#include <chrono>
+#include <iomanip>
+#include <random>
+
+#define MAXN 1024
+#define MAXEDGES 32768
+#define MAXNB 128
 
 using namespace std;
 
-const double p_max = 3;
-int len = 50;
-const int repeat_times_bound = 1000;
+int len = 1000, init_len = 1000;
+const int len_min = 1000, len_max = 1000, len_step = 10; //change this to change the len
 int repeat_times = 0;
-double sum = 0;
-double sum2 = 0;
-int len_x = len;
-int len_y = len;
-const double T_0 = 100;
-const double cooling_rate = 1 - 1e-4;
-const double T_min = 0.01;
-const int d_xy[5][2] = {{0, 0}, {0, 1}, {0, -1}, {1, 0}, {-1, 0}};
-int light_stage[200][200];
-double loss = 100000;
-double loss_num = 100000;
-int num = 0;
-int sum_num = 0;
-double p = 0, temp_p = 0;
-int init_len = 20;
-double init_p = 0;
-bool is_init = false;  //change this to initialize the p
+const int repeat_times_bound = 1000;
+double sum = 0, sum2 = 0, sum_time = 0;
+const double T_0 = 100, cooling_rate = 1 - 1e-4, T_min = 0.01;
+double T = 0;
+const double relative_uncertainty = 0.01, edge_generate_probability = 0.02;
+long double loss = 100000, loss_num = 100000, temp_loss = 0;
+int num = 0, sum_num = 0;
+const double p_max = 1000, p_min = 60, p_step = 0.5; //change this to change the p
+double p = 0, temp_p = 0, init_p = 0;
+double p_momentum = 0, p_upbound = 100, p_lowbound = 0;
+int loss_type = 4; // change this to change the loss function
+bool is_init = false; // change this to initialize the p
 bool is_stable = false;
 
-void light_up_kernel(int light_stage[200][200], int x_, int y_)
-{
-    for (int i = 0; i < 5; ++i)
-    {
-        int new_x = x_ + d_xy[i][0];
-        int new_y = y_ + d_xy[i][1];
-        if (new_x >= 0 && new_x < len_x && new_y >= 0 && new_y < len_y)
-        {
-            light_stage[new_x][new_y] = 1 - light_stage[new_x][new_y];
-        }
-    }
-}
+random_device rd; // 用于生成种子
+mt19937 gen(time(0)); // 使用 Mersenne Twister 生成器
+uniform_int_distribution<> dis(1, 100000); // 定义一个均匀分布，范围为 1 到 100
+uniform_real_distribution<> dis_real(0.0, 1.0); // 定义一个均匀分布，范围为 0.0 到 1.0
+uniform_int_distribution<> dis_bool(0, 1); // 定义一个均匀分布，范围为 0 到 1
 
-void light_up(int x_, int y_)
+struct vertex
 {
-    light_up_kernel(light_stage, x_, y_);
-}
+    int state;
+    int neighbor[MAXNB];
+    int size;
+    vertex() : state(dis_bool(gen)), size(0) {}
+};
 
-void generate_random_light()
+struct graph
 {
-    for (int i = 0; i < len_x; ++i)
-    {
-        for (int j = 0; j < len_y; ++j)
-        {
-            light_stage[i][j] = rand() % 2;
-        }
-    }
-}
+    vertex vertices[MAXN];
+    int edges[MAXEDGES][2];
+    int vertices_size, edge_size;
+    bool edge_matrix[MAXN][MAXN];
+    long double loss_1, loss_21, loss_31, loss_41;
 
-double find_new_loss_1()
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x; ++i)
+    void add_edge(int u, int v)
     {
-        for (int j = 0; j < len_y; ++j)
-        {
-            temp_loss += light_stage[i][j];
-        }
+        vertices[u].neighbor[vertices[u].size++] = v;
+        vertices[v].neighbor[vertices[v].size++] = u;
+        edges[edge_size][0] = u;
+        edges[edge_size][1] = v;
+        edge_size++;
+        edge_matrix[u][v] = true;
+        edge_matrix[v][u] = true;
     }
-    return temp_loss;
-}
 
-double find_new_loss_1(int new_p)
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x; ++i)
+    graph(int n) : vertices_size(n), edge_size(0), loss_1(0), loss_21(0), loss_31(0), loss_41(0)
     {
-        for (int j = 0; j < len_y; ++j)
+        for (int i = 0; i < n; ++i)
+            vertices[i] = vertex();
+        for (int i = 0; i < n; ++i)
+            fill(edge_matrix[i], edge_matrix[i] + n, false);
+        for (int i = 0; i < n; ++i)
         {
-            temp_loss += light_stage[i][j];
+            for (int j = i + 1; j < n; ++j)
+            {
+                if ((dis_real(gen)) < edge_generate_probability)
+                {
+                    add_edge(i, j);
+                }
+            }
+        }
+        for (int i = 0; i < vertices_size; ++i)
+        {
+            loss_1 += vertices[i].state;
+        }
+        for (int i = 0; i < edge_size; ++i)
+        {
+            loss_21 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state);
+            loss_31 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state) * (1.0L / vertices[edges[i][0]].size + 1.0L / vertices[edges[i][1]].size);
+            loss_41 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state) * (1.0L / (vertices[edges[i][0]].size * vertices[edges[i][0]].size) + 1.0L / (vertices[edges[i][1]].size * vertices[edges[i][1]].size));
         }
     }
-    return temp_loss;
-}
 
-double find_new_loss_2(int new_p)
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x - 1; ++i)
+    void light_up(int u)
     {
-        for (int j = 0; j < len_y; ++j)
+        vertices[u].state = 1 - vertices[u].state;
+        loss_1 += 2 * vertices[u].state - 1;
+        for (int i = 0; i < vertices[u].size; ++i)
         {
-            temp_loss += light_stage[i][j] * light_stage[i + 1][j];
+            int v = vertices[u].neighbor[i];
+            vertices[v].state = 1 - vertices[v].state;
+            loss_1 += 2 * vertices[v].state - 1;
+        }
+        for (int i = 0; i < vertices[u].size; ++i)
+        {
+            int v = vertices[u].neighbor[i];
+            for (int j = 0; j < vertices[v].size; ++j)
+            {
+                int w = vertices[v].neighbor[j];
+                if (w != u && !edge_matrix[u][w])
+                {
+                    // loss_21 += 2 * (vertices[v].state ^ vertices[w].state) - 1;
+                    // loss_31 += (2 * (vertices[v].state ^ vertices[w].state) - 1) * (1.0 / vertices[v].size + 1.0 / vertices[w].size);
+                    loss_41 += (2 * (vertices[v].state ^ vertices[w].state) - 1) * (1.0L / (vertices[v].size * vertices[v].size) + 1.0L / (vertices[w].size * vertices[w].size));
+                }
+            }
         }
     }
-    for (int i = 0; i < len_x; ++i)
-    {
-        for (int j = 0; j < len_y - 1; ++j)
-        {
-            temp_loss += light_stage[i][j] * light_stage[i][j + 1];
-        }
-    }
-    return -new_p * temp_loss + find_new_loss_1();
-}
 
-double find_new_loss_3(int new_p)
-{
-    double temp_loss = 0;
-    for (int i = 0; i < len_x - 1; ++i)
+    long double loss(int choose)
     {
-        for (int j = 0; j < len_y; ++j)
-        {
-            temp_loss += light_stage[i][j]^light_stage[i + 1][j];
-        }
+        if (choose == 1)
+            return loss_1;
+        else if (choose == 2)
+            return loss_1 + temp_p * loss_21;
+        else if (choose == 3)
+            return loss_1 + temp_p * loss_31;
+        else if (choose == 4)
+            return loss_1 + temp_p * loss_41;
+        exit(2);
     }
-    for (int i = 0; i < len_x; ++i)
-    {
-        for (int j = 0; j < len_y - 1; ++j)
-        {
-            temp_loss += light_stage[i][j]^light_stage[i][j + 1];
-        }
-    }
-    return new_p * temp_loss + find_new_loss_1();
-}
 
-void print_light()
-{
-    for (int i = 0; i < len_y; ++i)
+
+    void print()
     {
-        for (int j = 0; j < len_x; ++j)
+        for (int i = 0; i < vertices_size; ++i)
         {
-            cout << light_stage[i][j] << " ";
+            cout << vertices[i].state << " ";
         }
         cout << endl;
     }
-}
-
-void get_light_input()
-{
-    for (int i = 0; i < len_y; ++i)
-    {
-        for (int j = 0; j < len_x; ++j)
-        {
-            cin >> light_stage[i][j];
-        }
-    }
-}
+} g(0);
 
 void gradient_descent()
 {
@@ -156,50 +152,71 @@ void gradient_descent()
     while (!is_converged)
     {
         is_converged = true;
-        for (int i = 0; i < len_x; ++i) 
-            for (int j = 0; j < len_y; ++j)
+        for (int i = 0; i < len; ++i)
+        {
+            sum_num++;
+            g.light_up(i);
+            double temp_loss_num = g.loss_1;
+            if (temp_loss_num < loss_num)
             {
-                sum_num++;
-                light_up(i, j);
-                double temp_loss_num = find_new_loss_1();
-                light_up(i, j);
-                if (temp_loss_num < loss_num)
-                {
-                    light_up(i, j);
-                    loss_num = temp_loss_num;
-                    is_converged = false;
-                }
+                loss_num = temp_loss_num;
+                is_converged = false;
             }
+            else
+            {
+                g.light_up(i);
+            }
+        }
     }
+}
+
+void update()
+{
+    // p_momentum = 0.9 * p_momentum + 10 * (temp_loss - loss) / (loss * T);
+    loss = temp_loss;
+    // T *= 1 - 1e-4;
+    // num = 0;
+    // temp_p += p_momentum;
+    // if (temp_p > p_upbound)
+    // {
+    //     temp_p = p_upbound;
+    //     p_momentum = 0;
+    // }
+    // if (temp_p < p_lowbound)
+    // {
+    //     temp_p = p_lowbound;
+    //     p_momentum = 0;
+    // }
 }
 
 void main_algorithm()
 {
-    generate_random_light();
+    g = graph(len);
+    auto start_time = chrono::high_resolution_clock::now();
     loss = 100000;
+    // loss = g.loss(loss_type);
     num = 0;
     sum_num = 0;
     temp_p = p;
-    double T = T_0;
+    T = T_0;
     while (true)
     {
-        int x = rand() % len_x;
-        int y = rand() % len_y;
-        light_up(x, y);
-        double temp_loss = find_new_loss_3(temp_p); // change this to change the loss function
-        light_up(x, y);
+        // loss = g.loss(loss_type);
+        int x = dis(gen) % len;
+        g.light_up(x);
+        temp_loss = g.loss(loss_type);
         if (loss >= temp_loss)
         {
-            light_up(x, y);
-            loss = temp_loss;
-            num = 0;
+            // T *= 1 + 0.2 * (temp_loss - loss) / loss;
+            update();
         }
-        else if (exp((loss - temp_loss) / T) > ((double)rand() / RAND_MAX))
+        else if (exp((loss - temp_loss) / T) > (dis_real(gen)))
         {
-            light_up(x, y);
-            loss = temp_loss;
-            num = 0;
+            // T *= 1 + 0.1 * (temp_loss - loss) / loss;
+            update();
         }
+        else
+            g.light_up(x);
         num++;
         sum_num++;
         T *= cooling_rate;
@@ -209,32 +226,38 @@ void main_algorithm()
         }
         if (T < 1 && T > 0.1)
         {
-            temp_p *= 1-2e-5;
+            temp_p *= 1 - 2e-5;
         }
         if (T < 0.1)
         {
-            temp_p *= 1-1e-4;
+            temp_p *= 1 - 2e-5;
         }
+        if (sum_num % 10000 == 0)
+            cout << "temp_p: " << temp_p << "\tloss_num: " << g.loss_1 << "\tloss: " << loss << endl;
     }
-    loss_num = find_new_loss_1();
+    loss_num = g.loss_1;
     gradient_descent();
-    loss = find_new_loss_3(temp_p); // change this to change the loss function
-    // print_light();
-    cout << "len: " << len << "\tp: " << p << "\tloss_num: " << loss_num << " \tloss: " << loss << " \tsum_num: " << sum_num << endl;
+    loss = g.loss(loss_type);
+    auto end_time = chrono::high_resolution_clock::now();
+    chrono::duration<double> runtime = end_time - start_time;
+    // g.print();
+    cout << "len: " << len << "\tp: " << p << "\tloss_num: " << loss_num << "\tloss: " << loss << " \tsum_num: " << sum_num << " \truntime: " << runtime.count() << endl;
     sum += loss_num;
     sum2 += loss_num * loss_num;
+    sum_time += runtime.count();
 }
 
 void repeat_algorithm()
 {
     sum = 0;
     sum2 = 0;
+    sum_time = 0;
     is_stable = false;
     for (repeat_times = 1; repeat_times <= repeat_times_bound; ++repeat_times)
     {
         main_algorithm();
         if (repeat_times >= 10)
-            if (sum2 / (repeat_times*(repeat_times-1)) - ((sum*sum) / (repeat_times*repeat_times*(repeat_times-1))) < (sum / repeat_times * 0.005) * (sum / repeat_times * 0.005))
+            if (sum2 / (repeat_times * (repeat_times - 1)) - ((sum * sum) / (repeat_times * repeat_times * (repeat_times - 1))) < (sum / repeat_times * relative_uncertainty) * (sum / repeat_times * relative_uncertainty))
             {
                 is_stable = true;
                 break;
@@ -242,65 +265,95 @@ void repeat_algorithm()
     }
 }
 
-int main()
+void extract_last_entry(int &len_value, double &p_value)
 {
-    srand(time(0));
-
     ifstream infile("light_output.txt");
-    if (!infile) {
+    if (!infile)
+    {
         cerr << "无法打开文件 light_output.txt" << endl;
-        return 1;
+        exit(1);
     }
 
     string line;
-    regex pattern(R"(len: (\d+)\s+p: (\d+\.\d+))");
-    smatch matches;
-
-    while (getline(infile, line)) {
-        if (regex_search(line, matches, pattern)) {
-            init_len = stoi(matches[1].str());
-            init_p = double(stod(matches[2].str()))+0.05;
+    string last_line;
+    while (getline(infile, line))
+    {
+        if (!line.empty())
+        {
+            last_line = line;
         }
     }
 
     infile.close();
 
-    ofstream outfile("light_output.txt", std::ios::app);
-    if (!outfile) {
-        cerr << "无法打开文件 light_output.txt" << endl;
-        return 1;
-    }
-    
-    for (len = 50; len<=50; len+=10)
+    if (last_line.empty())
     {
-        len_x = len;
-        len_y = len;
-        for (p = p_max; p <= p_max+1e-6; p += 0.05)
+        cerr << "文件为空或没有有效数据" << endl;
+        return;
+    }
+
+    istringstream iss(last_line);
+    string part;
+    while (getline(iss, part, '\t'))
+    {
+        if (part.find("len:") != string::npos)
+        {
+            len_value = stod(part.substr(part.find(":") + 1));
+        }
+        else if (part.find("p:") != string::npos)
+        {
+            p_value = stod(part.substr(part.find(":") + 1));
+        }
+    }
+}
+
+void main_function()
+{
+    extract_last_entry(init_len, init_p);
+
+    ofstream outfile("light_output.txt", std::ios::app);
+    if (!outfile)
+    {
+        cerr << "无法打开文件 light_output.txt" << endl;
+        exit(1);
+    }
+
+    for (len = len_min; len <= len_max; len += len_step)
+    {
+        for (p = p_min; p <= p_max + 1e-6; p += p_step)
         {
             if (is_init)
             {
-                p = init_p;
+                p = init_p + p_step;
                 is_init = false;
-                if (p>p_max)
+                if (p > p_max)
                     break;
             }
             repeat_algorithm();
-            outfile << "len: " << len << "\tp: " << p << "\taverage loss_num: " << sum / repeat_times;
+            outfile << "len: " << len << "\tp: " << p << "\taverage loss_num: " << sum / repeat_times << "\taverage runtime: " << sum_time / repeat_times;
             if (is_stable)
             {
                 outfile << endl;
             }
             else
             {
-                outfile << "\tnot stable: " << (sqrt(sum2 / (repeat_times*(repeat_times-1)) - ((sum*sum) / (repeat_times*repeat_times*(repeat_times-1))))/(sum / repeat_times)) << endl;
+                outfile << "\tnot stable: " << (sqrt(sum2 / (repeat_times * (repeat_times - 1)) - ((sum * sum) / (repeat_times * repeat_times * (repeat_times - 1)))) / (sum / repeat_times)) << endl;
             }
         }
     }
 
-    // outfile << "这是写入文件的第一行。" << endl;
-    // outfile << "这是写入文件的第二行。" << endl;
-
     outfile.close();
+}
+
+int main()
+{
+    // main_function();
+
+    graph g(len);
+    for (int i = 0; i < 100; ++i)
+    {
+        
+    }
 
     return 0;
 }

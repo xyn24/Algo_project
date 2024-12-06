@@ -1,4 +1,32 @@
-len: 50	p: 1.5	average loss_num: 276.849
-len: 50	p: 3	average loss_num: 275.019
-len: 50	p: 3	average loss_num: 264.651
-len: 50	p: 3	average loss_num: 368.463
+len: 1000	p: 0	average loss_num: 227.229	average runtime: 0.230465
+len: 1000	p: 0	average loss_num: 228.021	average runtime: 0.413849
+len: 1000	p: 0	average loss_num: 228.038	average runtime: 0.610073
+len: 1000	p: 0	average loss_num: 231.971	average runtime: 0.133938
+len: 1000	p: 0	average loss_num: 230.421	average runtime: 0.165287
+len: 1000	p: 0	average loss_num: 236.211	average runtime: 0.102483
+len: 1000	p: 0	average loss_num: 213.312	average runtime: 1.92439
+len: 1000	p: 0	average loss_num: 205.588	average runtime: 17.2793
+len: 1000	p: 0	average loss_num: 227.3	average runtime: 0.451924
+len: 1000	p: 0	average loss_num: 237.762	average runtime: 0.0852108
+len: 1000	p: 0	average loss_num: 220.75	average runtime: 0.674264
+len: 1000	p: 0	average loss_num: 207.688	average runtime: 5.091
+len: 1000	p: 0	average loss_num: 219.429	average runtime: 0.639176
+len: 1000	p: 0	average loss_num: 206.533	average runtime: 5.07609
+len: 1000	p: 0	average loss_num: 212.933	average runtime: 1.78067
+len: 1000	p: 0	average loss_num: 202.706	average runtime: 16.2524
+len: 1000	p: 0	average loss_num: 212.5	average runtime: 1.46771
+
+len: 1000	p: 60	average loss_num: 221.64	average runtime: 1.34362
+len: 1000	p: 10	average loss_num: 212.815	average runtime: 1.24817
+len: 1000	p: 20	average loss_num: 214.286	average runtime: 1.24822
+len: 1000	p: 20	average loss_num: 217.707	average runtime: 0.642774
+len: 1000	p: 20	average loss_num: 216.222	average runtime: 0.836933
+len: 1000	p: 20	average loss_num: 215.261	average runtime: 0.939366
+len: 1000	p: 60	average loss_num: 211.571	average runtime: 0.953817
+len: 1000	p: 60	average loss_num: 216.5	average runtime: 0.847129
+len: 1000	p: 60	average loss_num: 214.206	average runtime: 0.836298
+len: 1000	p: 60	average loss_num: 212.321	average runtime: 1.02584
+len: 1000	p: 0	average loss_num: 202.643	average runtime: 9.4499
+len: 1000	p: 10	average loss_num: 204.417	average runtime: 9.38829
+len: 1000	p: 50	average loss_num: 201.455	average runtime: 27.5933
+len: 1000	p: 50	average loss_num: 211.474	average runtime: 2.16811

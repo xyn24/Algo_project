@@ -19,34 +19,47 @@
 using namespace std;
 
 int len = 1000, init_len = 1000;
-const int len_min = 1000, len_max = 1000, len_step = 10; //change this to change the len
+const int len_min = 1000, len_max = 1000, len_step = 10; // change this to change the len
 int repeat_times = 0;
 const int repeat_times_bound = 1000;
 double sum = 0, sum2 = 0, sum_time = 0;
-const double T_0 = 100, cooling_rate = 1 - 1e-4, T_min = 0.01;
+const double T_0 = 2, cooling_rate = 1e-6, T_min = 0.2;
 double T = 0;
-const double relative_uncertainty = 0.01, edge_generate_probability = 0.02;
-long double loss = 100000, loss_num = 100000, temp_loss = 0;
+const double relative_uncertainty = 0.005, edge_generate_probability = 0.02;
+long double loss = 100000, loss_num = 100000, temp_loss = 0, min_loss = 100000;
 int num = 0, sum_num = 0;
-const double p_max = 1000, p_min = 60, p_step = 0.5; //change this to change the p
+const double p_max = 50, p_min = 50, p_step = 0.5; // change this to change the p
 double p = 0, temp_p = 0, init_p = 0;
 double p_momentum = 0, p_upbound = 100, p_lowbound = 0;
-int loss_type = 4; // change this to change the loss function
+int loss_type = 1;    // change this to change the loss function
 bool is_init = false; // change this to initialize the p
 bool is_stable = false;
 
-random_device rd; // 用于生成种子
-mt19937 gen(time(0)); // 使用 Mersenne Twister 生成器
-uniform_int_distribution<> dis(1, 100000); // 定义一个均匀分布，范围为 1 到 100
+random_device rd;                               // 用于生成种子
+mt19937 gen(time(0));                           // 使用 Mersenne Twister 生成器
+uniform_int_distribution<> dis(1, 100000);      // 定义一个均匀分布，范围为 1 到 100000
 uniform_real_distribution<> dis_real(0.0, 1.0); // 定义一个均匀分布，范围为 0.0 到 1.0
-uniform_int_distribution<> dis_bool(0, 1); // 定义一个均匀分布，范围为 0 到 1
+uniform_int_distribution<> dis_bool(0, 1);      // 定义一个均匀分布，范围为 0 到 1
 
 struct vertex
 {
     int state;
     int neighbor[MAXNB];
     int size;
+    int size_3;
     vertex() : state(dis_bool(gen)), size(0) {}
+
+    vertex &operator=(const vertex &a)
+    {
+        state = a.state;
+        size = a.size;
+        size_3 = a.size_3;
+        for (int i = 0; i < size; ++i)
+        {
+            neighbor[i] = a.neighbor[i];
+        }
+        return *this;
+    }
 };
 
 struct graph
@@ -86,14 +99,44 @@ struct graph
         }
         for (int i = 0; i < vertices_size; ++i)
         {
+            vertices[i].size_3 = pow(vertices[i].size, 3);
             loss_1 += vertices[i].state;
         }
         for (int i = 0; i < edge_size; ++i)
         {
             loss_21 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state);
             loss_31 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state) * (1.0L / vertices[edges[i][0]].size + 1.0L / vertices[edges[i][1]].size);
-            loss_41 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state) * (1.0L / (vertices[edges[i][0]].size * vertices[edges[i][0]].size) + 1.0L / (vertices[edges[i][1]].size * vertices[edges[i][1]].size));
+            loss_41 += (vertices[edges[i][0]].state ^ vertices[edges[i][1]].state) * (1.0L / vertices[edges[i][0]].size_3 + 1.0L / vertices[edges[i][1]].size_3);
         }
+    }
+
+    graph &operator=(const graph &a)
+    {
+        if (this == &a)
+            return *this;
+        vertices_size = a.vertices_size;
+        edge_size = a.edge_size;
+        loss_1 = a.loss_1;
+        loss_21 = a.loss_21;
+        loss_31 = a.loss_31;
+        loss_41 = a.loss_41;
+        for (int i = 0; i < vertices_size; ++i)
+        {
+            vertices[i] = a.vertices[i];
+        }
+        for (int i = 0; i < edge_size; ++i)
+        {
+            edges[i][0] = a.edges[i][0];
+            edges[i][1] = a.edges[i][1];
+        }
+        for (int i = 0; i < vertices_size; ++i)
+        {
+            for (int j = 0; j < vertices_size; ++j)
+            {
+                edge_matrix[i][j] = a.edge_matrix[i][j];
+            }
+        }
+        return *this;
     }
 
     void light_up(int u)
@@ -116,7 +159,7 @@ struct graph
                 {
                     // loss_21 += 2 * (vertices[v].state ^ vertices[w].state) - 1;
                     // loss_31 += (2 * (vertices[v].state ^ vertices[w].state) - 1) * (1.0 / vertices[v].size + 1.0 / vertices[w].size);
-                    loss_41 += (2 * (vertices[v].state ^ vertices[w].state) - 1) * (1.0L / (vertices[v].size * vertices[v].size) + 1.0L / (vertices[w].size * vertices[w].size));
+                    loss_41 += (2 * (vertices[v].state ^ vertices[w].state) - 1) * (1.0L / vertices[v].size_3 + 1.0L / vertices[w].size_3);
                 }
             }
         }
@@ -135,7 +178,6 @@ struct graph
         exit(2);
     }
 
-
     void print()
     {
         for (int i = 0; i < vertices_size; ++i)
@@ -144,7 +186,7 @@ struct graph
         }
         cout << endl;
     }
-} g(0);
+} g(0), g_min(0);
 
 void gradient_descent()
 {
@@ -174,6 +216,11 @@ void update()
 {
     // p_momentum = 0.9 * p_momentum + 10 * (temp_loss - loss) / (loss * T);
     loss = temp_loss;
+    if (g.loss_1 < min_loss)
+    {
+        min_loss = g.loss_1;
+        g_min = g;
+    }
     // T *= 1 - 1e-4;
     // num = 0;
     // temp_p += p_momentum;
@@ -194,6 +241,7 @@ void main_algorithm()
     g = graph(len);
     auto start_time = chrono::high_resolution_clock::now();
     loss = 100000;
+    min_loss = 100000;
     // loss = g.loss(loss_type);
     num = 0;
     sum_num = 0;
@@ -201,7 +249,7 @@ void main_algorithm()
     T = T_0;
     while (true)
     {
-        // loss = g.loss(loss_type);
+        loss = g.loss(loss_type);
         int x = dis(gen) % len;
         g.light_up(x);
         temp_loss = g.loss(loss_type);
@@ -219,29 +267,28 @@ void main_algorithm()
             g.light_up(x);
         num++;
         sum_num++;
-        T *= cooling_rate;
+        // T -= cooling_rate;
+        // T *= cooling_rate;
+        T *= 1 / (1 + cooling_rate * log(1 + sum_num));
         if (T < T_min)
         {
             break;
         }
-        if (T < 1 && T > 0.1)
+        if (T < 2 && T > 0.1)
         {
-            temp_p *= 1 - 2e-5;
+            temp_p *= 1 - 1e-5;
         }
-        if (T < 0.1)
-        {
-            temp_p *= 1 - 2e-5;
-        }
-        if (sum_num % 10000 == 0)
+        if (sum_num % 20000 == 0)
             cout << "temp_p: " << temp_p << "\tloss_num: " << g.loss_1 << "\tloss: " << loss << endl;
     }
+    g = g_min;
     loss_num = g.loss_1;
     gradient_descent();
     loss = g.loss(loss_type);
     auto end_time = chrono::high_resolution_clock::now();
     chrono::duration<double> runtime = end_time - start_time;
     // g.print();
-    cout << "len: " << len << "\tp: " << p << "\tloss_num: " << loss_num << "\tloss: " << loss << " \tsum_num: " << sum_num << " \truntime: " << runtime.count() << endl;
+    cout << "len: " << len << "\tp: " << p << "\tloss_num: " << loss_num << "\tloss: " << loss << " \tsum_num: " << sum_num << " \truntime: " << runtime.count() << " \tmin_loss: " << min_loss << endl;
     sum += loss_num;
     sum2 += loss_num * loss_num;
     sum_time += runtime.count();
@@ -347,13 +394,7 @@ void main_function()
 
 int main()
 {
-    // main_function();
-
-    graph g(len);
-    for (int i = 0; i < 100; ++i)
-    {
-        
-    }
+    main_function();
 
     return 0;
 }
